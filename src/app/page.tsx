@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/useEditorStore';
 import { Uploader } from '@/components/editor/Uploader';
@@ -6,6 +7,9 @@ import { Toolbar } from '@/components/editor/Toolbar';
 import { LeverageChart } from '@/components/charts/LeverageChart';
 import { AxlePathChart } from '@/components/charts/AxlePathChart';
 import { MetricsPanel } from '@/components/charts/MetricsPanel';
+import { LibraryPanel } from '@/components/library/LibraryPanel';
+import { ShareDialog } from '@/components/library/ShareDialog';
+import { saveBike } from '@/lib/storage/bikes';
 
 const ImageCanvas = dynamic(() => import('@/components/editor/ImageCanvas'), {
   ssr: false,
@@ -26,6 +30,22 @@ export default function Home() {
   const result = useEditorStore((s) => s.result);
   const clearImage = useEditorStore((s) => s.clearImage);
 
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const handleSave = async () => {
+    if (!config || saveState !== 'idle') return;
+    setSaveState('saving');
+    try {
+      await saveBike(config);
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2000);
+    } catch {
+      setSaveState('idle');
+    }
+  };
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-border bg-panel/60 px-4 py-2.5 backdrop-blur">
@@ -33,14 +53,42 @@ export default function Home() {
           <span className="text-sm font-semibold tracking-tight text-foreground">Linkage Lab</span>
           <span className="hidden text-xs text-muted sm:inline">MTB suspension analyzer</span>
         </div>
-        {config && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={clearImage}
+            onClick={() => setShowLibrary(true)}
             className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs text-muted transition hover:border-accent hover:text-accent"
           >
-            New photo
+            Library
           </button>
-        )}
+          {config && (
+            <>
+              <button
+                onClick={handleSave}
+                disabled={saveState !== 'idle'}
+                className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs transition disabled:opacity-60
+                  data-[state=saved]:border-green-700 data-[state=saved]:text-green-400
+                  enabled:text-muted enabled:hover:border-accent enabled:hover:text-accent"
+                data-state={saveState === 'saved' ? 'saved' : undefined}
+              >
+                {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : 'Save'}
+              </button>
+              {result && (
+                <button
+                  onClick={() => setShowShare(true)}
+                  className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs text-muted transition hover:border-accent hover:text-accent"
+                >
+                  Share
+                </button>
+              )}
+              <button
+                onClick={clearImage}
+                className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs text-muted transition hover:border-red-700 hover:text-red-400"
+              >
+                New photo
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {!config ? (
@@ -62,6 +110,9 @@ export default function Home() {
           </aside>
         </div>
       )}
+
+      {showLibrary && <LibraryPanel onClose={() => setShowLibrary(false)} />}
+      {showShare && config && <ShareDialog config={config} onClose={() => setShowShare(false)} />}
     </div>
   );
 }

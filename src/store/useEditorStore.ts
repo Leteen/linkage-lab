@@ -24,6 +24,7 @@ export interface EditorState {
 
   precision: boolean;
   ctrlHeld: boolean;
+  readOnly: boolean;
 
   // actions
   initImage: (src: string, width: number, height: number, type?: SuspensionType) => void;
@@ -39,6 +40,7 @@ export interface EditorState {
   setDrivetrain: (patch: Partial<NonNullable<BikeConfig['drivetrain']>>) => void;
   setPrecision: (on: boolean) => void;
   setCtrl: (on: boolean) => void;
+  setReadOnly: (on: boolean) => void;
   loadConfig: (config: BikeConfig) => void;
 }
 
@@ -48,6 +50,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedRole: null,
   precision: false,
   ctrlHeld: false,
+  readOnly: false,
 
   initImage: (src, width, height, type = 'horst') => {
     const config: BikeConfig = {
@@ -83,8 +86,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   movePoint: (role, x, y) => {
-    const { config } = get();
-    if (!config) return;
+    const { config, readOnly } = get();
+    if (!config || readOnly) return;
     const px = clamp(x, 0, config.image.width);
     const py = clamp(y, 0, config.image.height);
     const group = (config.coincident ?? []).find((g) => g.includes(role));
@@ -96,8 +99,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   toggleCoincident: (a, b) => {
-    const { config } = get();
-    if (!config || a === b || !config.points[a] || !config.points[b]) return;
+    const { config, readOnly } = get();
+    if (!config || readOnly || a === b || !config.points[a] || !config.points[b]) return;
     const w = config.image.width;
     const h = config.image.height;
     let groups = (config.coincident ?? []).map((g) => [...g]);
@@ -164,6 +167,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setPrecision: (on) => set({ precision: on }),
   setCtrl: (on) => set({ ctrlHeld: on }),
+  setReadOnly: (on) => set({ readOnly: on }),
 
   loadConfig: (config) =>
     set({ config: { ...config, coincident: config.coincident ?? [] }, result: recompute(config), selectedRole: null }),
