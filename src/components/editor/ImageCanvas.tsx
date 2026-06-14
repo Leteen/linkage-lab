@@ -297,13 +297,13 @@ export default function ImageCanvas() {
             }
             const ux = dx / L;
             const uy = dy / L;
-            const bodyPx = clamp((e2e - stroke) / mmpp, 0, L);
-            const bx = a.x + ux * bodyPx;
-            const by = a.y + uy * bodyPx;
+            const shaftPx = clamp(stroke / mmpp, 0, L);
+            const sx = a.x + ux * shaftPx;
+            const sy = a.y + uy * shaftPx;
             return (
               <>
-                <Line points={[a.x, a.y, bx, by]} stroke="#f472b6" strokeWidth={9 / view.scale} opacity={0.9} lineCap="round" listening={false} />
-                <Line points={[bx, by, b.x, b.y]} stroke="#fbcfe8" strokeWidth={3.5 / view.scale} lineCap="round" listening={false} />
+                <Line points={[a.x, a.y, sx, sy]} stroke="#fbcfe8" strokeWidth={3.5 / view.scale} lineCap="round" listening={false} />
+                <Line points={[sx, sy, b.x, b.y]} stroke="#f472b6" strokeWidth={9 / view.scale} opacity={0.9} lineCap="round" listening={false} />
               </>
             );
           })()}
