@@ -10,6 +10,7 @@ import { MetricsPanel } from '@/components/charts/MetricsPanel';
 import { LibraryPanel } from '@/components/library/LibraryPanel';
 import { ShareDialog } from '@/components/library/ShareDialog';
 import { saveBike } from '@/lib/storage/bikes';
+import type { BikeConfig } from '@/lib/kinematics/types';
 
 const ImageCanvas = dynamic(() => import('@/components/editor/ImageCanvas'), {
   ssr: false,
@@ -29,6 +30,7 @@ export default function Home() {
   const config = useEditorStore((s) => s.config);
   const result = useEditorStore((s) => s.result);
   const clearImage = useEditorStore((s) => s.clearImage);
+  const loadConfig = useEditorStore((s) => s.loadConfig);
 
   const [showLibrary, setShowLibrary] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -46,6 +48,24 @@ export default function Home() {
     }
   };
 
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          loadConfig(JSON.parse(reader.result as string) as BikeConfig);
+        } catch { /* ignore malformed files */ }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-border bg-panel/60 px-4 py-2.5 backdrop-blur">
@@ -59,6 +79,12 @@ export default function Home() {
             className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs text-muted transition hover:border-accent hover:text-accent"
           >
             Library
+          </button>
+          <button
+            onClick={handleImport}
+            className="rounded-lg border border-border bg-panel-2 px-3 py-1.5 text-xs text-muted transition hover:border-accent hover:text-accent"
+          >
+            Import
           </button>
           {config && (
             <>

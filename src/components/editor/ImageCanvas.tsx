@@ -88,7 +88,9 @@ export default function ImageCanvas() {
   );
 
   useEffect(() => {
-    if (!config || !img) return;
+    if (!config) return;
+    // Wait for the image to load, unless there is no image (URL-shared config with no photo).
+    if (!img && config.image.src) return;
     if (initializedFor.current !== config.image.src || size.w === 0) {
       initializedFor.current = config.image.src;
       fit();
@@ -341,11 +343,30 @@ export default function ImageCanvas() {
                 y={p.y}
                 draggable={editable}
                 dragBoundFunc={(pos) => {
-                  if (!(ctrlHeld || precision) || !dragStart.current) return pos;
-                  return {
-                    x: dragStart.current.x + (pos.x - dragStart.current.x) * PRECISION_FACTOR,
-                    y: dragStart.current.y + (pos.y - dragStart.current.y) * PRECISION_FACTOR,
-                  };
+                  // Step 1: precision slowdown (screen coords).
+                  let p = (ctrlHeld || precision) && dragStart.current
+                    ? {
+                        x: dragStart.current.x + (pos.x - dragStart.current.x) * PRECISION_FACTOR,
+                        y: dragStart.current.y + (pos.y - dragStart.current.y) * PRECISION_FACTOR,
+                      }
+                    : pos;
+                  // Step 2: pin shock length — project shockMoving onto the circle around shockFrame.
+                  // Doing this in dragBoundFunc (screen coords) avoids a fight between Konva's
+                  // internal drag anchor and React's re-render with the projected position.
+                  if (isShockEye && role.key === 'shockMoving') {
+                    const mmpp = result?.mmPerPixel ?? 0;
+                    const e2e = config.shock.eyeToEyeMm;
+                    if ((config.shock.lockLength ?? true) && mmpp > 0 && e2e > 0) {
+                      const sf = config.points.shockFrame;
+                      const sfAbs = { x: sf.x * view.scale + view.x, y: sf.y * view.scale + view.y };
+                      const Rabs = (e2e / mmpp) * view.scale;
+                      const dx = p.x - sfAbs.x;
+                      const dy = p.y - sfAbs.y;
+                      const d = Math.hypot(dx, dy) || 1;
+                      p = { x: sfAbs.x + (dx / d) * Rabs, y: sfAbs.y + (dy / d) * Rabs };
+                    }
+                  }
+                  return p;
                 }}
                 onMouseDown={(e) => {
                   e.cancelBubble = true;
