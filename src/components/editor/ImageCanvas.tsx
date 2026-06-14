@@ -297,7 +297,8 @@ export default function ImageCanvas() {
             }
             const ux = dx / L;
             const uy = dy / L;
-            const shaftPx = clamp(stroke / mmpp, 0, L);
+            const bodyPx = clamp((e2e - stroke) / mmpp, 0, L);
+            const shaftPx = L - bodyPx; // shrinks as shock compresses
             const sx = a.x + ux * shaftPx;
             const sy = a.y + uy * shaftPx;
             return (
