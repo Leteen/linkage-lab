@@ -1,5 +1,6 @@
 'use client';
 import { useEffect } from 'react';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useEditorStore } from '@/store/useEditorStore';
 import type { BikeConfig } from '@/lib/kinematics/types';
@@ -26,7 +27,7 @@ export function ViewerClient({ config }: { config: BikeConfig }) {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <a href="/" className="text-xs text-accent hover:text-foreground transition">← Linkage Lab</a>
+        <Link href="/" className="text-xs text-accent hover:text-foreground transition">← Linkage Lab</Link>
         <span className="text-border">|</span>
         <span className="text-sm font-medium">{config.name}</span>
         <span className="text-xs text-muted">{preset.name}</span>

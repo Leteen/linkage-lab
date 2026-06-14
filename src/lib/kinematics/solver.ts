@@ -32,13 +32,14 @@ function worldPoints(config: BikeConfig, mmpp: number): Record<string, Pt> {
   return out;
 }
 
-export function solve(config: BikeConfig, N = 120): SolveResult {
+export function solve(config: BikeConfig, N = 120, opts: { withFrames?: boolean } = {}): SolveResult {
   const warnings: string[] = [];
   const mmpp = mmPerPixel(config);
   const W = worldPoints(config, mmpp);
   const preset = getPreset(config.suspensionType);
   const mech = preset.mech;
   const stroke = config.shock.strokeMm;
+  const imgH = config.image.height;
 
   const shockFrame = W.shockFrame;
   const axleRef = W.axle;
@@ -66,11 +67,14 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
     const Lc = dist(m1ref, m2ref);
     paramRef = angleOf(sub(m1ref, g1));
 
-    // When shockFrame coincides with a ground pivot the shock-eye distance is
-    // invariant (it just rotates about that pivot) → 0mm travel.  Detect and
-    // switch to a member whose motion is actually coupled to the frame.
-    let effectiveShockMember: MemberId = mech.shockMember;
-    {
+    // The member the moving shock eye rides on. An explicit user choice always
+    // wins; otherwise fall back to the preset default plus a degeneracy guard.
+    const explicitMember = config.shock.driveMember;
+    let effectiveShockMember: MemberId = explicitMember ?? mech.shockMember;
+    if (!explicitMember) {
+      // When shockFrame coincides with a ground pivot the shock-eye distance is
+      // invariant (it just rotates about that pivot) → 0mm travel.  Detect and
+      // switch to a member whose motion is actually coupled to the frame.
       const atG1 = dist(shockFrame, g1) < 0.5;
       const atG2 = dist(shockFrame, g2) < 0.5;
       const degenerate =
@@ -84,7 +88,7 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
         }) ?? 'coupler';
         effectiveShockMember = chosen;
         warnings.push(
-          `shockFrame coincides with a ground pivot — shock member auto-switched to '${chosen}' (e.g. Giant Maestro / dual-link where shock frame mounts at lower-link pivot).`,
+          `shockFrame coincides with a ground pivot — shock member auto-switched to '${chosen}'. Set 'Shock drives' explicitly if this is wrong.`,
         );
       }
     }
@@ -117,7 +121,11 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
   const shockLenAt = (pose: Pose) => dist(shockFrame, pose.shockEye);
   const topoutShockLen = shockLenAt(refPose);
 
-  if (config.shock.eyeToEyeMm > 0 && Math.abs(topoutShockLen - config.shock.eyeToEyeMm) > 3) {
+  if (
+    config.shock.lockLength === false &&
+    config.shock.eyeToEyeMm > 0 &&
+    Math.abs(topoutShockLen - config.shock.eyeToEyeMm) > 3
+  ) {
     warnings.push(
       `Marked shock length ${topoutShockLen.toFixed(1)}mm differs from eye-to-eye ${config.shock.eyeToEyeMm}mm — check chainstay calibration or shock-eye markers.`,
     );
@@ -184,6 +192,24 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
   const axle0 = refPose.axle;
   const rearSign = Math.sign(axle0.x - bbWorld.x) || 1;
 
+  // Optional per-step pixel-space marker maps for animation. Every moving marker
+  // in every preset is exactly one of {m1, m2, axle, shockMoving}; the rest are
+  // frame-fixed and keep their marked pixel position.
+  const wantFrames = !!opts.withFrames && mmpp > 0;
+  const frames: Record<string, Pt>[] | undefined = wantFrames ? [] : undefined;
+  const toPx = (w: Pt): Pt => ({ x: w.x / mmpp, y: imgH - w.y / mmpp });
+  const frameFor = (pose: Pose): Record<string, Pt> => {
+    const out: Record<string, Pt> = {};
+    for (const key of Object.keys(config.points)) {
+      if (key === mech.m1) out[key] = toPx(pose.m1);
+      else if (mech.m2 && key === mech.m2) out[key] = toPx(pose.m2);
+      else if (key === 'axle') out[key] = toPx(pose.axle);
+      else if (key === 'shockMoving') out[key] = toPx(pose.shockEye);
+      else out[key] = { ...config.points[key] }; // frame-fixed
+    }
+    return out;
+  };
+
   const steps: SolveStep[] = [];
   for (let i = 0; i <= N; i++) {
     const shockTravel = (i / N) * usableStroke;
@@ -198,6 +224,7 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
       axleOffset: { x: (pose.axle.x - axle0.x) * rearSign, y: pose.axle.y - axle0.y },
       instantCenter: pose.ic,
     });
+    if (frames) frames.push(frameFor(pose));
   }
 
   const travels = steps.map((s) => s.wheelTravelMm);
@@ -215,15 +242,22 @@ export function solve(config: BikeConfig, N = 120): SolveResult {
   }
 
   const prog = progression(lev);
+  const travelMm = steps[steps.length - 1].wheelTravelMm;
+  if (travelMm < 0) {
+    warnings.push(
+      "Rear travel is negative — the shock's moving eye is on the wrong link. Use 'Shock drives' to pick the correct member.",
+    );
+  }
   return {
     steps,
-    travelMm: steps[steps.length - 1].wheelTravelMm,
+    travelMm,
     progressionPct: prog.pct,
     leverageStart: prog.start,
     leverageEnd: prog.end,
     mmPerPixel: mmpp,
     topoutShockLenMm: topoutShockLen,
     warnings,
+    frames,
   };
 }
 

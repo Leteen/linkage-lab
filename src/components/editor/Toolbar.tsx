@@ -1,6 +1,6 @@
 'use client';
 import { useEditorStore } from '@/store/useEditorStore';
-import { ALL_PRESETS, getPreset } from '@/lib/kinematics/presets';
+import { ALL_PRESETS, getPreset, shockMemberOptions } from '@/lib/kinematics/presets';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -60,6 +60,9 @@ export function Toolbar() {
   const coincident = config.coincident ?? [];
   const selGroup = selectedRole ? coincident.find((g) => g.includes(selectedRole)) : undefined;
   const selRole = preset.roles.find((r) => r.key === selectedRole);
+  const shockOptions = shockMemberOptions(preset);
+  const shockMember = config.shock.driveMember ?? preset.mech.shockMember;
+  const lockLength = config.shock.lockLength ?? true;
 
   return (
     <div className="space-y-5">
@@ -147,6 +150,44 @@ export function Toolbar() {
           <NumberField label="Eye-to-eye" value={config.shock.eyeToEyeMm} onChange={(v) => setShock({ eyeToEyeMm: v })} unit="mm" />
           <NumberField label="Stroke" value={config.shock.strokeMm} onChange={(v) => setShock({ strokeMm: v })} unit="mm" />
         </div>
+
+        {shockOptions.length > 1 && (
+          <div className="space-y-1.5">
+            <span className="field-label">Shock drives</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {shockOptions.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => setShock({ driveMember: o.id })}
+                  className={`rounded-lg border px-2 py-1.5 text-[11px] transition ${
+                    shockMember === o.id
+                      ? 'border-accent bg-accent/10 text-foreground'
+                      : 'border-border bg-panel-2 text-muted hover:text-foreground'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted">
+              Which link the shock&apos;s moving eye mounts to. On dual-link bikes (e.g. Giant Reign) the wrong
+              choice flips travel negative.
+            </p>
+          </div>
+        )}
+
+        <label className="flex items-center justify-between gap-2 rounded-lg border border-border bg-panel-2 px-3 py-2">
+          <span className="text-[11px] text-muted">
+            Lock shock length
+            <span className="ml-1 text-foreground/70">(can&apos;t resize on screen)</span>
+          </span>
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-[var(--accent)]"
+            checked={lockLength}
+            onChange={(e) => setShock({ lockLength: e.target.checked })}
+          />
+        </label>
       </Section>
 
       <Section title="Drivetrain (for kickback)">

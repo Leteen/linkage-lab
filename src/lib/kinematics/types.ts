@@ -14,6 +14,9 @@ export interface Pt {
   y: number;
 }
 
+/** Which member of the mechanism a rigidly-attached point rides on. */
+export type MemberId = 'link1' | 'link2' | 'coupler';
+
 export interface SpringConfig {
   type: 'coil' | 'air';
   coilRateNmm?: number;
@@ -41,7 +44,14 @@ export interface BikeConfig {
   image: { src: string; width: number; height: number };
   /** Real-world calibration: chainstay = BB centre to rear axle centre. */
   calibration: { chainstayMm: number };
-  shock: { eyeToEyeMm: number; strokeMm: number };
+  shock: {
+    eyeToEyeMm: number;
+    strokeMm: number;
+    /** Which member the moving shock eye is attached to. Overrides the preset default + auto-detect. */
+    driveMember?: MemberId;
+    /** When not false, the canvas pins the on-screen eye-to-eye distance while dragging. */
+    lockLength?: boolean;
+  };
   drivetrain?: { chainringT: number; cogT: number };
   wheel?: { rearRadiusMm: number; frontRadiusMm?: number };
   spring?: SpringConfig;
@@ -76,4 +86,6 @@ export interface SolveResult {
   mmPerPixel: number;
   topoutShockLenMm: number;
   warnings: string[];
+  /** Per-step pixel-space positions of every marker role, for animation. Populated only when requested. */
+  frames?: Record<string, Pt>[];
 }

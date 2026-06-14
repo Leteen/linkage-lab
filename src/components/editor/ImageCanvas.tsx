@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Image as KImage, Group, Circle, Line, Text } from 'react-konva';
+import { Stage, Layer, Image as KImage, Group, Circle, Line, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { useEditorStore } from '@/store/useEditorStore';
@@ -15,6 +15,9 @@ const HANDLE_R = 7;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
+const isShockPair = (a: string, b: string) =>
+  (a === 'shockFrame' && b === 'shockMoving') || (a === 'shockMoving' && b === 'shockFrame');
+
 interface View {
   scale: number;
   x: number;
@@ -27,12 +30,24 @@ export default function ImageCanvas() {
   const selectedRole = useEditorStore((s) => s.selectedRole);
   const precision = useEditorStore((s) => s.precision);
   const ctrlHeld = useEditorStore((s) => s.ctrlHeld);
+  const readOnly = useEditorStore((s) => s.readOnly);
   const movePoint = useEditorStore((s) => s.movePoint);
+  const moveShock = useEditorStore((s) => s.moveShock);
   const select = useEditorStore((s) => s.select);
   const nudge = useEditorStore((s) => s.nudge);
   const toggleCoincident = useEditorStore((s) => s.toggleCoincident);
   const setCtrl = useEditorStore((s) => s.setCtrl);
   const setPrecision = useEditorStore((s) => s.setPrecision);
+
+  const animating = useEditorStore((s) => s.animating);
+  const animFrames = useEditorStore((s) => s.animFrames);
+  const animIndex = useEditorStore((s) => s.animIndex);
+  const dimImage = useEditorStore((s) => s.dimImage);
+  const playAnimation = useEditorStore((s) => s.playAnimation);
+  const stopAnimation = useEditorStore((s) => s.stopAnimation);
+  const setAnimIndex = useEditorStore((s) => s.setAnimIndex);
+  const setDimImage = useEditorStore((s) => s.setDimImage);
+  const [playing, setPlaying] = useState(true);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -108,6 +123,23 @@ export default function ImageCanvas() {
     };
   }, [nudge, setCtrl]);
 
+  // Ping-pong the shock through its stroke while playing.
+  useEffect(() => {
+    if (!animating || !playing || !animFrames || animFrames.length < 2) return;
+    const max = animFrames.length - 1;
+    const periodMs = 1600; // one direction (topout → bottom-out)
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const phase = ((now - start) % (periodMs * 2)) / periodMs; // 0..2
+      const tri = phase <= 1 ? phase : 2 - phase; // 0..1..0
+      setAnimIndex(Math.round(tri * max));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [animating, playing, animFrames, setAnimIndex]);
+
   const zoomBy = (factor: number) => {
     const cx = size.w / 2;
     const cy = size.h / 2;
@@ -173,6 +205,17 @@ export default function ImageCanvas() {
   const lineW = 2 / view.scale;
   const coincident = config.coincident ?? [];
 
+  // Active marker positions: animation frame when playing, else the authored points.
+  const pts = (animating && animFrames ? animFrames[animIndex] : config.points) ?? config.points;
+  const dim = animating || dimImage;
+  const editable = !animating && !readOnly;
+  const animMax = animFrames ? animFrames.length - 1 : 0;
+  const animFrac = animMax > 0 ? animIndex / animMax : 0;
+  const animStep =
+    result && result.steps.length > 1
+      ? result.steps[Math.round(animFrac * (result.steps.length - 1))]
+      : null;
+
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       <Stage
@@ -198,21 +241,70 @@ export default function ImageCanvas() {
             <KImage image={img} x={0} y={0} width={config.image.width} height={config.image.height} listening={false} />
           )}
 
-          {preset.links.map(([a, b], i) => {
-            const pa = config.points[a];
-            const pb = config.points[b];
-            if (!pa || !pb) return null;
+          {/* Darken the photo for contrast (always during animation). */}
+          {dim && (
+            <Rect
+              x={0}
+              y={0}
+              width={config.image.width}
+              height={config.image.height}
+              fill="rgba(7,9,13,0.6)"
+              listening={false}
+            />
+          )}
+
+          {preset.links
+            .filter(([a, b]) => !isShockPair(a, b))
+            .map(([a, b], i) => {
+              const pa = pts[a];
+              const pb = pts[b];
+              if (!pa || !pb) return null;
+              return (
+                <Line
+                  key={`l${i}`}
+                  points={[pa.x, pa.y, pb.x, pb.y]}
+                  stroke="rgba(230,237,243,0.55)"
+                  strokeWidth={lineW}
+                  dash={[6 / view.scale, 4 / view.scale]}
+                  listening={false}
+                />
+              );
+            })}
+
+          {/* Shock: thick body (can) + thin exposed shaft that retracts under compression. */}
+          {(() => {
+            const a = pts.shockFrame;
+            const b = pts.shockMoving;
+            if (!a || !b) return null;
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const L = Math.hypot(dx, dy);
+            const mmpp = result?.mmPerPixel ?? 0;
+            const e2e = config.shock.eyeToEyeMm;
+            const stroke = config.shock.strokeMm;
+            if (L < 1e-3 || mmpp <= 0 || e2e <= 0) {
+              return (
+                <Line
+                  points={[a.x, a.y, b.x, b.y]}
+                  stroke="#f472b6"
+                  strokeWidth={lineW}
+                  dash={[6 / view.scale, 4 / view.scale]}
+                  listening={false}
+                />
+              );
+            }
+            const ux = dx / L;
+            const uy = dy / L;
+            const bodyPx = clamp((e2e - stroke) / mmpp, 0, L);
+            const bx = a.x + ux * bodyPx;
+            const by = a.y + uy * bodyPx;
             return (
-              <Line
-                key={`l${i}`}
-                points={[pa.x, pa.y, pb.x, pb.y]}
-                stroke="rgba(230,237,243,0.55)"
-                strokeWidth={lineW}
-                dash={[6 / view.scale, 4 / view.scale]}
-                listening={false}
-              />
+              <>
+                <Line points={[a.x, a.y, bx, by]} stroke="#f472b6" strokeWidth={9 / view.scale} opacity={0.9} lineCap="round" listening={false} />
+                <Line points={[bx, by, b.x, b.y]} stroke="#fbcfe8" strokeWidth={3.5 / view.scale} lineCap="round" listening={false} />
+              </>
             );
-          })}
+          })()}
 
           {/* Axle path overlay */}
           {result && result.steps.length > 1 && (() => {
@@ -236,17 +328,18 @@ export default function ImageCanvas() {
           })()}
 
           {preset.roles.map((role) => {
-            const p = config.points[role.key];
+            const p = pts[role.key];
             if (!p) return null;
             const isSel = selectedRole === role.key;
             const grp = coincident.find((g) => g.includes(role.key));
             const gidx = grp ? grp.indexOf(role.key) : 0;
+            const isShockEye = role.key === 'shockFrame' || role.key === 'shockMoving';
             return (
               <Group
                 key={role.key}
                 x={p.x}
                 y={p.y}
-                draggable
+                draggable={editable}
                 dragBoundFunc={(pos) => {
                   if (!(ctrlHeld || precision) || !dragStart.current) return pos;
                   return {
@@ -277,7 +370,8 @@ export default function ImageCanvas() {
                 onDragMove={(e) => {
                   const nx = e.target.x();
                   const ny = e.target.y();
-                  movePoint(role.key, nx, ny);
+                  if (isShockEye) moveShock(role.key, nx, ny);
+                  else movePoint(role.key, nx, ny);
                   setLoupe((l) => ({ ...l, visible: ctrlHeld || precision, cx: nx, cy: ny, color: role.color }));
                 }}
                 onDragEnd={() => {
@@ -325,17 +419,80 @@ export default function ImageCanvas() {
         </div>
       )}
 
+      {/* Animation controls */}
+      <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-panel/85 px-3 py-2 backdrop-blur">
+        {!animating ? (
+          <button
+            onClick={() => {
+              setPlaying(true);
+              playAnimation();
+            }}
+            className="rounded-lg border border-accent bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/25"
+            title="Cycle the suspension through its travel"
+          >
+            ▶ Animate
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => setPlaying((p) => !p)}
+              className="w-9 rounded-lg border border-border bg-panel-2 py-1.5 text-sm text-foreground transition hover:border-accent hover:text-accent"
+              title={playing ? 'Pause' : 'Play'}
+            >
+              {playing ? '⏸' : '▶'}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={animMax}
+              value={animIndex}
+              onChange={(e) => {
+                setPlaying(false);
+                setAnimIndex(Number(e.target.value));
+              }}
+              className="w-32 accent-[var(--accent)] sm:w-40"
+              aria-label="Scrub travel"
+            />
+            <span className="mono hidden min-w-[96px] text-right text-[11px] text-muted sm:inline">
+              {animStep ? `${animStep.wheelTravelMm.toFixed(0)}mm · shk ${animStep.shockTravelMm.toFixed(0)}mm` : ''}
+            </span>
+            <button
+              onClick={() => {
+                setPlaying(false);
+                stopAnimation();
+              }}
+              className="rounded-lg border border-border bg-panel-2 px-2.5 py-1.5 text-[11px] text-muted transition hover:border-red-700 hover:text-red-400"
+            >
+              Exit
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Controls overlay */}
       <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-2">
-        <button
-          onClick={() => setPrecision(!precision)}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur transition ${
-            precision ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-panel/80 text-muted hover:text-foreground'
-          }`}
-          title="Slow, magnified dragging for fine placement (or hold Ctrl)"
-        >
-          Precision {precision ? 'on' : 'off'}
-        </button>
+        {!animating && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDimImage(!dimImage)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur transition ${
+                dimImage ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-panel/80 text-muted hover:text-foreground'
+              }`}
+              title="Darken the photo for contrast"
+            >
+              Dim {dimImage ? 'on' : 'off'}
+            </button>
+            <button
+              onClick={() => setPrecision(!precision)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium backdrop-blur transition ${
+                precision ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-panel/80 text-muted hover:text-foreground'
+              }`}
+              title="Slow, magnified dragging for fine placement (or hold Ctrl)"
+            >
+              Precision {precision ? 'on' : 'off'}
+            </button>
+          </div>
+        )}
         <div className="flex gap-1.5">
           <CanvasBtn onClick={() => zoomBy(1 / 1.25)} label="−" />
           <CanvasBtn onClick={fit} label="Fit" wide />

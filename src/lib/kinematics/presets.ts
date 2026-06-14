@@ -1,9 +1,9 @@
 // Suspension-design presets. Each defines the marker roles (with default
 // drop positions + colors) and the mechanism topology mapping those roles onto
 // the generic four-bar / single-pivot solver.
-import type { Pt, SuspensionType } from './types';
+import type { MemberId, Pt, SuspensionType } from './types';
 
-export type MemberId = 'link1' | 'link2' | 'coupler';
+export type { MemberId };
 
 export interface MechanismSpec {
   kind: 'fourbar' | 'singlepivot';
@@ -37,6 +37,8 @@ export interface PresetDef {
   mech: MechanismSpec;
   /** Role pairs to render as connecting links. */
   links: [string, string][];
+  /** Human labels for the members the shock can be attached to. */
+  memberLabels: Partial<Record<MemberId, string>>;
 }
 
 const COLOR = {
@@ -76,6 +78,7 @@ export const PRESETS: Record<SuspensionType, PresetDef> = {
       ['upperRear', 'axle'],
       ['shockFrame', 'shockMoving'],
     ],
+    memberLabels: { link1: 'Lower link', link2: 'Upper link', coupler: 'Rear triangle' },
   },
 
   dwlink: {
@@ -101,6 +104,7 @@ export const PRESETS: Record<SuspensionType, PresetDef> = {
       ['upperRear', 'axle'],
       ['shockFrame', 'shockMoving'],
     ],
+    memberLabels: { link1: 'Lower link', link2: 'Upper link', coupler: 'Rear triangle' },
   },
 
   horst: {
@@ -125,6 +129,7 @@ export const PRESETS: Record<SuspensionType, PresetDef> = {
       ['rockerFrame', 'rockerSeat'],
       ['shockFrame', 'shockMoving'],
     ],
+    memberLabels: { link1: 'Chainstay', link2: 'Rocker', coupler: 'Seatstay' },
   },
 
   fauxbar: {
@@ -149,6 +154,7 @@ export const PRESETS: Record<SuspensionType, PresetDef> = {
       ['rockerFrame', 'rockerSeat'],
       ['shockFrame', 'shockMoving'],
     ],
+    memberLabels: { link1: 'Swingarm', link2: 'Rocker', coupler: 'Seatstay' },
   },
 
   singlepivot: {
@@ -168,6 +174,7 @@ export const PRESETS: Record<SuspensionType, PresetDef> = {
       ['mainPivot', 'shockMoving'],
       ['shockFrame', 'shockMoving'],
     ],
+    memberLabels: { link1: 'Swingarm' },
   },
 };
 
@@ -175,6 +182,14 @@ export const ALL_PRESETS: PresetDef[] = Object.values(PRESETS);
 
 export function getPreset(type: SuspensionType): PresetDef {
   return PRESETS[type];
+}
+
+/** Members the shock's moving eye can attach to, with human labels. Single-member mechanisms return one. */
+export function shockMemberOptions(preset: PresetDef): { id: MemberId; label: string }[] {
+  const order: MemberId[] = ['link1', 'coupler', 'link2'];
+  return order
+    .filter((m) => preset.memberLabels[m])
+    .map((m) => ({ id: m, label: preset.memberLabels[m] as string }));
 }
 
 /** Initial marker positions (image pixels) for a freshly chosen preset. */
